@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetch Filtered Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        table {
+            width: 60%;
+            margin: 20px auto;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 5px;
+            text-align: left;
+        }
+        th {
+            background-color: transparent;
+            color: black;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: transparent;
+            color: black;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #f1f1f1;
+        }
+        .filter-container {
+            margin: 20px;
+        }
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 160px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+        }
+        .dropdown-content button {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            width: 100%;
+            border: none;
+            background: none;
+            text-align: left;
+            cursor: pointer;
+        }
+        .dropdown-content button:hover {
+            background-color: #f1f1f1;
+        }
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+        .dropdown button::after {
+            content: ' ▼';
+            font-size: 12px;
+        }
+        .slider-container {
+            margin: 20px;
+        }
+        .slider-value {
+            margin-top: 10px;
+            font-size: 16px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <h2>Customer Data</h2>
+
+    <div class="filter-container">
+        <label for="fromDate">From Date:</label>
+        <input type="date" id="fromDate">
+        <label for="toDate">To Date:</label>
+        <input type="date" id="toDate">
+        <button id="fetchButton">Fetch Data</button>
+    </div>
+
+    <div class="slider-container">
+        <input type="range" id="dateRangeSlider" min="1" max="4" step="1" value="1">
+        <div class="slider-value" id="sliderValue">1 Month</div>
+    </div>
+
+    <table id="dataTable">
+        <thead>
+            <tr id="tableHead"></tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <div id="printButtonContainer" style="display:none;">
+        <div class="dropdown">
+            <button id="printButton">Download</button>
+            <div class="dropdown-content" id="downloadOptions">
+                <button id="downloadPDF">Download as PDF</button>
+                <button id="downloadExcel">Download as Excel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const fetchButton = document.getElementById('fetchButton');
+            const printButtonContainer = document.getElementById('printButtonContainer');
+            const downloadPDF = document.getElementById('downloadPDF');
+            const downloadExcel = document.getElementById('downloadExcel');
+            const dateRangeSlider = document.getElementById('dateRangeSlider');
+            const fromDateInput = document.getElementById('fromDate');
+            const toDateInput = document.getElementById('toDate');
+            const sliderValue = document.getElementById('sliderValue');
+
+            const sliderLabels = ["1 Month", "3 Months", "6 Months", "12 Months"];
+
+            function getDateRange(months) {
+                const toDate = new Date();
+                const fromDate = new Date();
+                fromDate.setMonth(toDate.getMonth() - months);
+                return {
+                    fromDate: fromDate.toISOString().split('T')[0],
+                    toDate: toDate.toISOString().split('T')[0]
+                };
+            }
+
+            function formatDate(date) {
+                const [year, month, day] = date.split('-');
+                return `${day}-${month}-${year}`;
+            }
+
+            dateRangeSlider.addEventListener('input', () => {
+                sliderValue.textContent = sliderLabels[dateRangeSlider.value - 1];
+            });
+
+            fromDateInput.addEventListener('change', () => {
+                toDateInput.min = fromDateInput.value;
+            });
+
+            toDateInput.addEventListener('change', () => {
+                fromDateInput.max = toDateInput.value;
+            });
+
+            fetchButton.addEventListener('click', () => {
+                let fromDate = fromDateInput.value;
+                let toDate = toDateInput.value;
+
+                if (!fromDate || !toDate) {
+                    const sliderValue = parseInt(dateRangeSlider.value);
+                    const dateRange = getDateRange(sliderValue === 1 ? 1 : sliderValue === 2 ? 3 : sliderValue === 3 ? 6 : 12);
+                    fromDate = dateRange.fromDate;
+                    toDate = dateRange.toDate;
+                }
+
+                const url = `http://localhost:8080/fetch?fromDate=${fromDate}&toDate=${toDate}`;
+
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not OK');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.length === 0) {
+                            alert("No data found for the selected date range.");
+                            return;
+                        }
+
+                        const tableHead = document.getElementById('tableHead');
+                        const tableBody = document.getElementById('tableBody');
+
+                        // Clear previous table content
+                        tableHead.innerHTML = "";
+                        tableBody.innerHTML = "";
+
+                        // Create table headers dynamically
+                        const headers = Object.keys(data[0]);
+                        headers.forEach(header => {
+                            const th = document.createElement('th');
+                            th.textContent = header.toUpperCase();
+                            tableHead.appendChild(th);
+                        });
+
+                        // Populate table rows
+                        data.forEach(row => {
+                            const tr = document.createElement('tr');
+                            headers.forEach(header => {
+                                const td = document.createElement('td');
+                                td.textContent = (header === 'created_at' || header === 'updated_at' || header === 'date_of_birth') ? formatDate(row[header].split(' ')[0]) : row[header];
+                                tr.appendChild(td);
+                            });
+                            tableBody.appendChild(tr);
+                        });
+
+                        // Show the print button container
+                        printButtonContainer.style.display = 'block';
+
+                        downloadPDF.onclick = () => {
+                            const { jsPDF } = window.jspdf;
+                            const doc = new jsPDF();
+                            const pageHeight = doc.internal.pageSize.height;
+                            const margin = 10;
+                            const boxMargin = 5;
+                            let y = margin;
+
+                            doc.setFontSize(10);
+                            doc.text(`Customer Data from ${formatDate(fromDate)} to ${formatDate(toDate)}`, margin, y);
+                            y += 10;
+
+                            data.forEach(row => {
+                                if (y + 30 > pageHeight - margin) {
+                                    doc.addPage();
+                                    y = margin;
+                                }
+
+                                const boxHeight = (headers.length * 6) + (2 * boxMargin);
+                                doc.rect(margin, y, doc.internal.pageSize.width - 2 * margin, boxHeight);
+                                y += boxMargin;
+
+                                headers.forEach(header => {
+                                    doc.text(`${header.toUpperCase()}: ${(header === 'created_at' || header === 'updated_at' || header === 'date_of_birth') ? formatDate(row[header].split(' ')[0]) : row[header]}`, margin + boxMargin, y);
+                                    y += 6;
+                                });
+
+                                y += boxMargin;
+                            });
+
+                            const fileName = `CustomerData_${formatDate(fromDate)}_to_${formatDate(toDate)}.pdf`;
+                            doc.save(fileName);
+                        };
+
+                        downloadExcel.onclick = () => {
+                            const formattedData = data.map(row => {
+                                const formattedRow = {};
+                                headers.forEach(header => {
+                                    formattedRow[header] = (header === 'created_at' || header === 'updated_at' || header === 'date_of_birth') ? formatDate(row[header].split(' ')[0]) : row[header];
+                                });
+                                return formattedRow;
+                            });
+
+                            const ws = XLSX.utils.json_to_sheet(formattedData);
+                            const wb = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wb, ws, "CustomerData");
+                            const fileName = `CustomerData_${formatDate(fromDate)}_to_${formatDate(toDate)}.xlsx`;
+                            XLSX.writeFile(wb, fileName);
+                        };
+                    })
+                    .catch(error => console.error('Error fetching data:', error));
+            });
+        });
+    </script>
+
+</body>
+</html>
